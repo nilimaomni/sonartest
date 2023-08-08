@@ -1,0 +1,89 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: CloudFormation template for creating an API Gateway endpoint to dump data into a Firehose delivery stream.
+
+Parameters:
+  RestApiName:
+    Type: String
+    Description: API-Gateway-Rest-Api-Name
+
+  StageName:
+    Type: String
+    Description: Env-Name
+
+  FirehoseDeliveryStreamARN:
+    Type: String
+    Description: ARN of the Kinesis Data Firehose delivery stream
+
+  FirehoseAPIGatewayRoleARN:
+    Type: String
+    Description: ARN of the IAM Role created for Kinesis Data Firehose delivery stream
+
+Resources:
+  APIGatewayRestApi:
+    Type: AWS::ApiGateway::RestApi
+    Properties:
+      Name: !Ref RestApiName
+
+  APIGatewayResource:
+    Type: AWS::ApiGateway::Resource
+    Properties:
+      RestApiId: !Ref APIGatewayRestApi
+      ParentId: !GetAtt APIGatewayRestApi.RootResourceId
+      PathPart: "dump"
+
+  APIGatewayMethod:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      RestApiId: !Ref APIGatewayRestApi
+      ResourceId: !Ref APIGatewayResource
+      HttpMethod: POST
+      AuthorizationType: NONE
+      ApiKeyRequired: true # Enable API key authentication
+      Integration:
+        Type: AWS
+        IntegrationHttpMethod: POST
+        Uri: !Ref FirehoseDeliveryStreamARN
+        Credentials: !Ref FirehoseAPIGatewayRoleARN
+        RequestParameters:
+          "integration.request.header.Content-Type": "'application/json'"
+        IntegrationResponses:
+          - StatusCode: 200
+
+  APIGatewayDeployment:
+    Type: AWS::ApiGateway::Deployment
+    DependsOn:
+      - APIGatewayMethod
+    Properties:
+      RestApiId: !Ref APIGatewayRestApi
+
+  APIGatewayStage:
+    Type: AWS::ApiGateway::Stage
+    Properties:
+      DeploymentId: !Ref APIGatewayDeployment
+      RestApiId: !Ref APIGatewayRestApi
+      StageName: !Ref StageName
+
+  APIGatewayApiKey:
+    Type: AWS::ApiGateway::ApiKey
+    Properties:
+      Name: MyFirehoseApiKey
+      Enabled: true
+
+  APIGatewayUsagePlan:
+    Type: AWS::ApiGateway::UsagePlan
+    Properties:
+      Name: MyUsagePlan
+      ApiStages:
+        - ApiId: !Ref APIGatewayRestApi
+          Stage: !Ref APIGatewayStage
+      ApiKey: !Ref APIGatewayApiKey
+
+Outputs:
+  APIEndpoint:
+    Description: API Gateway endpoint URL
+    Value: !Sub "https://${APIGatewayRestApi}.execute-api.${AWS::Region}.amazonaws.com/${StageName}/dump"
+
+  APIKey:
+    Description: API key for authentication
+    Value: !Ref APIGatewayApiKey

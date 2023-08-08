@@ -1,0 +1,33 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: 'S3 bucket creation'
+
+Parameters:
+  EnvironmentType:
+    Type: String
+    Description: 'Environment of Deployment'
+  BucketName:
+    Description: 'Name of the bucket'
+    Type: String
+    
+Resources:
+  S3Bucket:
+    Type: AWS::S3::Bucket
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      BucketName: !Sub '${BucketName}-${EnvironmentType}-${AWS::AccountId}-${AWS::Region}'
+      AccessControl: Private
+      VersioningConfiguration:
+        Status: 'Enabled'
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+        - ServerSideEncryptionByDefault:
+            SSEAlgorithm: AES256
+          BucketKeyEnabled: true
+
+
+Outputs:
+  BucketName:
+    Description: Bucket Name
+    Value: !Ref S3Bucket

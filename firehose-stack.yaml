@@ -1,0 +1,118 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: CloudFormation template for creating a Kinesis Data Firehose delivery stream.
+
+Parameters:
+  BucketName:
+    Type: String
+    Description: Enter-S3-bucket-name
+
+  FirehoseDeliveryStreamName:
+    Type: String
+    Description: Firehose-delivery-stream-name
+
+  FirehoseLogGroupName:
+    Type: String
+    Description: Enter-Log-Group-Name
+
+  FirehoseLogStreamName:
+    Type: String
+    Description: Enter-Log-Stream-Name
+
+Resources:
+  MyFirehoseLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Ref FirehoseLogGroupName
+      RetentionInDays: 7
+
+  MyFirehoseLogStream:
+    Type: AWS::Logs::LogStream
+    DependsOn: MyFirehoseLogGroup
+    Properties:
+      LogGroupName: !Ref FirehoseLogGroupName
+      LogStreamName: !Ref FirehoseLogStreamName
+
+  FirehoseBucketRole:
+    Type: AWS::IAM::Role
+    DependsOn: MyFirehoseLogStream
+    Properties:
+      RoleName: FirehoseBucketRole
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: firehose.amazonaws.com
+            Action: "sts:AssumeRole"
+      Policies:
+        - PolicyName: FirehosePolicy
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - "s3:PutObject"
+                  - "s3:AbortMultipartUpload"
+                  - "s3:ListBucketMultipartUploads"
+                  - "s3:GetBucketLocation"
+                  - "s3:GetObject"
+                  - "s3:ListBucket"
+                Resource:
+                  - !Sub "arn:aws:s3:::${BucketName}/*"
+                  - !Sub "arn:aws:s3:::${BucketName}"
+              - Effect: Allow
+                Action:
+                  - "logs:PutLogEvents"
+                  - "logs:CreateLogStream"
+                  - "logs:PutLogEvents"
+                Resource: !Sub "arn:aws:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/kinesisfirehose/*"
+
+  FirehoseDeliveryStream:
+    Type: AWS::KinesisFirehose::DeliveryStream
+    DependsOn: FirehoseBucketRole
+    Properties:
+      DeliveryStreamName: !Ref FirehoseDeliveryStreamName
+      DeliveryStreamType: DirectPut
+      ExtendedS3DestinationConfiguration:
+        BucketARN: !Sub "arn:aws:s3:::${BucketName}"
+        RoleARN: !GetAtt FirehoseBucketRole.Arn
+        CloudWatchLoggingOptions:
+          Enabled: true
+          LogGroupName: !Ref MyFirehoseLogGroup
+          LogStreamName: !Ref MyFirehoseLogStream
+        Prefix: "data/"
+        BufferingHints:
+          IntervalInSeconds: 60
+          SizeInMBs: 64
+        CompressionFormat: UNCOMPRESSED
+        ErrorOutputPrefix: error/result=!{firehose:error-output-type}/dt=!{timestamp:yyyy'-'MM'-'dd}/
+        Prefix: data/!{partitionKeyFromQuery:SECTOR}/dt=!{timestamp:yyyy'-'MM'-'dd}/
+        DynamicPartitioningConfiguration:
+          Enabled: true
+          RetryOptions:
+            DurationInSeconds: 60
+        ProcessingConfiguration:
+          Enabled: true
+          Processors:
+          - Type: MetadataExtraction
+            Parameters:
+            - ParameterName: MetadataExtractionQuery
+              ParameterValue: '{SECTOR: .SECTOR}'
+            - ParameterName: JsonParsingEngine
+              ParameterValue: JQ-1.6
+          - Type: AppendDelimiterToRecord
+            Parameters:
+            - ParameterName: Delimiter
+              ParameterValue: "\\n"
+
+Outputs:
+  FirehoseDeliveryStreamName:
+    Description: Name of the created Kinesis Data Firehose delivery stream
+    Value: !Ref FirehoseDeliveryStream
+  FirehoseDeliveryStreamARN:
+    Description: ARN of the created Kinesis Data Firehose delivery stream
+    Value: !GetAtt FirehoseDeliveryStream.Arn
+  FirehoseBucketRoleARN:
+    Description: ARN of the IAM Role created for Kinesis Data Firehose delivery stream
+    Value: !GetAtt FirehoseBucketRole.Arn

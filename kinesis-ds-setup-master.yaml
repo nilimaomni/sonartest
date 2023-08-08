@@ -1,0 +1,97 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: CloudFormation template for creating an S3 bucket, Kinesis Data Firehose delivery stream, and an API Gateway endpoint.
+
+Parameters:
+
+  EnvironmentType:
+    Type: String
+    Description: environment-type
+    Default: 'dev'
+
+  BucketName:
+    Type: String
+    Description: S3-bucket-name
+    Default: 'test9876'
+
+  FirehoseDeliveryStreamName:
+    Type: String
+    Description: Firehose-delivery-stream-name
+    Default: 'test-omni-data'
+
+  FirehoseLogGroupName:
+    Type: String
+    Description: Log-Group-Name
+    Default: 'test-log-group'
+
+  FirehoseLogStreamName:
+    Type: String
+    Description: Log-Stream-Name
+    Default: 'test-data-stream'
+
+  RestApiName:
+    Type: String
+    Description: API-Gateway-Rest-Api-Name
+    Default: 'test-api'
+
+  StageName:
+    Type: String
+    Description: Env-Name
+    Default: 'dev'
+
+  FirehoseAPIGatewayRoleARN:
+    Type: String
+    Description: Firehose APIGateway Put Batch methos Role ARN
+    Default: 'arn:aws:iam::921197957248:role/KinesisFirehosePutBatchRecordForAPIGateway'
+
+Resources:
+  S3BucketStack:
+    Type: AWS::CloudFormation::Stack
+    Properties:
+      Parameters:
+        EnvironmentType: !Ref EnvironmentType
+        BucketName: !Ref BucketName
+      TemplateURL: s3-bucket.yaml
+
+  FirehoseStack:
+    Type: AWS::CloudFormation::Stack
+    DependsOn: S3BucketStack
+    Properties:
+      TemplateURL: firehose-stack.yaml
+      Parameters:
+        BucketName: !GetAtt S3BucketStack.Outputs.BucketName
+        FirehoseDeliveryStreamName: !Ref FirehoseDeliveryStreamName
+        FirehoseLogGroupName: !Ref FirehoseLogGroupName
+        FirehoseLogStreamName: !Ref FirehoseLogStreamName
+
+  ApiGatewayStack:
+    Type: AWS::CloudFormation::Stack
+    DependsOn: FirehoseStack
+    Properties:
+      TemplateURL: create-rest-api.yaml
+      Parameters:
+        RestApiName: !Ref RestApiName
+        StageName: !Ref StageName
+        FirehoseDeliveryStreamARN: !GetAtt FirehoseStack.Outputs.FirehoseDeliveryStreamARN
+        FirehoseAPIGatewayRoleARN: !Ref FirehoseAPIGatewayRoleARN
+
+Outputs:
+  BucketName:
+    Description: S3 Bucket Name
+    Value: !GetAtt [ 'S3BucketStack', 'Outputs.BucketName']
+
+  FirehoseDeliveryStreamName:
+    Description: Name of the created Kinesis Data Firehose delivery stream
+    Value: !GetAtt FirehoseStack.Outputs.FirehoseDeliveryStreamName
+
+  FirehoseBucketRoleARN:
+    Description: ARN of the IAM Role created for Kinesis Data Firehose delivery stream
+    Value: !GetAtt FirehoseStack.Outputs.FirehoseBucketRoleARN
+
+  APIEndpoint:
+    Description: API Gateway endpoint URL
+    Value: !GetAtt ApiGatewayStack.Outputs.APIEndpoint
+
+  APIKey:
+    Description: API key for authentication
+    Value: !GetAtt ApiGatewayStack.Outputs.APIKey
